@@ -1,0 +1,16 @@
+---
+- name: test my new module
+  hosts: localhost
+  tasks:
+  - name: run the new module
+    opensds_snapshot:
+      action: create
+      option: volume_from_snapshot
+      size: 1
+      name: 'new_snap1'
+      snap_id: '4a6943f9-8f4b-403d-8d29-c441c8b5b93c'
+      new: true
+    register: testout
+  - name: dump test output
+    debug:
+      msg: '{{ testout }}'

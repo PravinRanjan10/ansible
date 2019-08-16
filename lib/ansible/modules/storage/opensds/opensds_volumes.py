@@ -1,0 +1,185 @@
+#!/usr/bin/python
+
+# Copyright: (c) 2018, Terry Jones <terry.jones@example.org>
+# GNU General Public License v3.0+ (see COPYING or https://www.gnu.org/licenses/gpl-3.0.txt)
+from __future__ import absolute_import, division, print_function
+ANSIBLE_METADATA = {
+    'metadata_version': '1.1',
+    'status': ['preview'],
+    'supported_by': 'community'
+}
+
+DOCUMENTATION = '''
+---
+module: my_test1
+
+short_description: This is my test module
+
+version_added: "2.4"
+
+description:
+    - "This is my longer description explaining my test module"
+
+options:
+    name:
+        description:
+            - This is the message to send to the test module
+        required: true
+    new:
+        description:
+            - Control to demo if the result of this module is changed or not
+        required: false
+
+extends_documentation_fragment:
+    - azure
+
+author:
+    - Your Name (@yourhandle)
+'''
+
+EXAMPLES = '''
+# Pass in a message
+- name: Test with a message
+  my_test:
+    name: hello world
+
+# pass in a message and have changed true
+- name: Test with a message and changed output
+  my_test:
+    name: hello world
+    new: true
+
+# fail the module
+- name: Test failure of the module
+  my_test:
+    name: fail me
+'''
+
+RETURN = '''
+original_message:
+    description: The original name param that was passed in
+    type: str
+    returned: always
+message:
+    description: The output message that the test module generates
+    type: str
+    returned: always
+'''
+
+from ansible.module_utils.basic import AnsibleModule
+import requests
+import time
+
+# get volume is to get the volume details
+def get_volume(url, vol_id):
+    if vol_id != "":
+        url = url + vol_id
+    res = requests.get(url)
+    return res.status_code, res.json()
+
+# To create volume
+def create_volume(url, name, size, description,
+          availability_zone, status, pool_id, profile_id,
+          snapshot_id, attach_status, option):
+    data = {'name': name, 'size': size}
+    res = requests.post(url= url, json=data)
+    return res.status_code, res.json()
+
+# To delte the volume
+def delete_volume(url, vol_id):
+    url = url + vol_id
+    res = requests.delete(url)
+    try:
+        return res.status_code, res.json()
+    except:
+        return "1", "VOLUME IS SUCCESSFULLY DELETED!!"
+
+def run_module():
+    # define available arguments/parameters a user can pass to the module
+    module_args = dict(
+        action=dict(type='str', required=True),
+        name=dict(type='str', required=True),
+        description=dict(type='str'),
+        size=dict(type='int', required=True),
+        output=dict(type='dict', required=True),
+        availability_zone=dict(type='str'),
+        status=dict(type='str'),
+        pool_id=dict(type='str'),
+        vol_id=dict(type='str'),
+        profile_id=dict(type='str'),
+        snapshot_id=dict(type='str'),
+        attach_status=dict(type='str'),
+        new=dict(type='bool', required=False, default=False)
+    )
+    url = "http://127.0.0.1:50040/v1beta/e93b4c0934da416eb9c8d120c5d04d96/block/volumes/"
+
+    result = dict(
+        changed = False
+    )
+
+    module = AnsibleModule(
+        argument_spec=module_args,
+        supports_check_mode=True
+    )
+
+    # Variable names based on input parameter
+    name = module.params['name']
+    size = module.params['size']
+    description = module.params['description']
+    availability_zone= module.params['availability_zone']
+    status = module.params['status']
+    pool_id = module.params['pool_id']
+    profile_id = module.params['profile_id']
+    snapshot_id = module.params['snapshot_id']
+    attach_status = module.params['attach_status']
+    action = module.params['action']
+
+    # Driver code to create and delete volume
+    if action == "create":
+      rc, create_out = create_volume(url, name, size, description,
+                availability_zone, status, pool_id, profile_id,
+                snapshot_id, attach_status, "post"
+                )
+
+      # Add 2-3 ms to get volume available
+      time.sleep(2)
+
+      vol_id = create_out['id']
+      rc, get_out = get_volume(url, vol_id)
+      if get_out['status'] == "error":
+         result['CREATE_MESSAGE:'] = "Volume creation fail!!!. Please check the log for more details."
+
+      if get_out['status'] == "available":
+         result['CREATE_MESSAGE:'] = "VOLUME IS SUCCESSFULLY CREATED!!!."
+
+    elif action == "delete":
+        vol_id = module.params['vol_id']
+        if vol_id:
+            rc, delete_msg = delete_volume(url, vol_id)
+            result['DELETE_MESSAGE:'] = delete_msg
+        else:
+            rc, volumes_list = get_volume(url, "")
+            #result['debug_message'] = volumes_list
+            filter = [key  for key  in volumes_list  if key['name'] == name]
+            if len(filter) == 0:
+                result['DELETE_MESSAGE:'] = "There is no volume with the name " + name
+            elif len(filter) == 1:
+                vol_id = filter[0]['id']
+                rc, delete_msg = delete_volume(url, vol_id)
+                result['DELETE_MESSAGE:'] = delete_msg
+            else:
+                result['DELETE_MESSAGE:'] = "More than one volumes found with same name. So we could not delete the volume"
+
+    if module.params['new']:
+        result['changed'] = True
+
+    if module.params['name'] == 'fail me':
+        module.fail_json(msg='You requested this to fail', **result)
+
+    module.exit_json(**result)
+
+def main():
+    run_module()
+
+if __name__ == '__main__':
+    main()
